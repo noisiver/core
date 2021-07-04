@@ -269,6 +269,14 @@ bool PartyBotAI::ShouldAutoRevive() const
     return alivePlayerNearby;
 }
 
+bool PartyBotAI::CanTryToCastSpell(Unit const* pTarget, SpellEntry const* pSpellEntry) const
+{
+    if (pSpellEntry->IsAreaOfEffectSpell() && !m_marksToCC.empty())
+        return false;
+
+    return CombatBotBaseAI::CanTryToCastSpell(pTarget, pSpellEntry);
+}
+
 bool PartyBotAI::CanUseCrowdControl(SpellEntry const* pSpellEntry, Unit* pTarget) const
 {
     if ((pSpellEntry->AuraInterruptFlags & AURA_INTERRUPT_FLAG_DAMAGE) &&
@@ -349,6 +357,13 @@ Unit* PartyBotAI::SelectAttackTarget(Player* pLeader) const
     // Check if other group members are under attack.
     if (Unit* pPartyAttacker = SelectPartyAttackTarget())
         return pPartyAttacker;
+
+    // Assist pet if its in combat.
+    if (Pet* pPet = me->GetPet())
+    {
+        if (Unit* pPetAttacker = pPet->GetAttackerForHelper())
+            return pPetAttacker;
+    }
 
     return nullptr;
 }
@@ -493,6 +508,14 @@ void PartyBotAI::OnPacketReceived(WorldPacket const* packet)
     //printf("Bot received %s\n", LookupOpcodeName(packet->GetOpcode()));
     switch (packet->GetOpcode())
     {
+        case SMSG_LEARNED_SPELL:
+        case SMSG_SUPERCEDED_SPELL:
+        case SMSG_REMOVED_SPELL:
+        {
+            if (m_initialized)
+                m_resetSpellData = true;
+            return;
+        }
         case SMSG_LOOT_START_ROLL:
         {
             uint64 guid = *((uint64*)(*packet).contents());
@@ -548,6 +571,13 @@ void PartyBotAI::UpdateAI(uint32 const diff)
 
         m_initialized = true;
         return;
+    }
+
+    if (m_resetSpellData)
+    {
+        ResetSpellData();
+        PopulateSpellData();
+        m_resetSpellData = false;
     }
 
     Player* pLeader = GetPartyLeader();
@@ -839,6 +869,9 @@ void PartyBotAI::UpdateInCombatAI()
             UpdateInCombatAI_Druid();
             break;
     }
+
+    if (me->GetVictim())
+        UseTrinketEffects();
 }
 
 void PartyBotAI::UpdateOutOfCombatAI_Paladin()
@@ -1448,6 +1481,13 @@ void PartyBotAI::UpdateInCombatAI_Mage()
 {
     if (Unit* pVictim = me->GetVictim())
     {
+        if (m_spells.mage.pCombustion &&
+            CanTryToCastSpell(me, m_spells.mage.pCombustion))
+        {
+            if (DoCastSpell(me, m_spells.mage.pCombustion) == SPELL_CAST_OK)
+                return;
+        }
+
         if (m_spells.mage.pPyroblast &&
            ((m_spells.mage.pPresenceOfMind && me->HasAura(m_spells.mage.pPresenceOfMind->Id)) ||
             (!pVictim->IsInCombat() && (pVictim->GetMaxHealth() > me->GetMaxHealth()) && (me->GetDistance(pVictim) > 30.0f))) &&
@@ -1906,13 +1946,22 @@ void PartyBotAI::UpdateInCombatAI_Priest()
             me->GetMotionMaster()->MoveChase(pVictim, 25.0f);
         }
 
-        if (m_spells.priest.pHolyNova &&
-            me->GetShapeshiftForm() == FORM_NONE &&
-            GetAttackersInRangeCount(10.0f) > 2 &&
-            CanTryToCastSpell(me, m_spells.priest.pHolyNova))
+        if (me->GetShapeshiftForm() == FORM_NONE)
         {
-            if (DoCastSpell(me, m_spells.priest.pHolyNova) == SPELL_CAST_OK)
-                return;
+            if (m_spells.priest.pHolyNova &&
+                GetAttackersInRangeCount(10.0f) > 2 &&
+                CanTryToCastSpell(me, m_spells.priest.pHolyNova))
+            {
+                if (DoCastSpell(me, m_spells.priest.pHolyNova) == SPELL_CAST_OK)
+                    return;
+            }
+
+            if (m_spells.priest.pSmite &&
+                CanTryToCastSpell(pVictim, m_spells.priest.pSmite))
+            {
+                if (DoCastSpell(pVictim, m_spells.priest.pSmite) == SPELL_CAST_OK)
+                    return;
+            }
         }
 
         if (me->HasSpell(PB_SPELL_SHOOT_WAND) &&
