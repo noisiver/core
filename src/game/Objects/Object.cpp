@@ -80,7 +80,7 @@ void MovementInfo::Read(ByteBuffer &data)
 
     if (HasMovementFlag(MOVEFLAG_JUMPING))
     {
-        data >> jump.velocity;
+        data >> jump.zspeed;
         data >> jump.cosAngle;
         data >> jump.sinAngle;
         data >> jump.xyspeed;
@@ -161,7 +161,7 @@ void MovementInfo::Write(ByteBuffer &data) const
 
     if (HasMovementFlag(MOVEFLAG_JUMPING))
     {
-        data << jump.velocity;
+        data << jump.zspeed;
         data << jump.cosAngle;
         data << jump.sinAngle;
         data << jump.xyspeed;
@@ -1827,24 +1827,9 @@ bool WorldObject::HasInArc(WorldObject const* target, float const arcangle, floa
     return ((angle >= lborder) && (angle <= rborder));
 }
 
-bool WorldObject::isInFrontInMap(WorldObject const* target, float distance,  float arc) const
+bool WorldObject::IsFacingTarget(WorldObject const* target) const
 {
-    return IsWithinDistInMap(target, distance) && HasInArc(target, arc);
-}
-
-bool WorldObject::isInBackInMap(WorldObject const* target, float distance, float arc) const
-{
-    return IsWithinDistInMap(target, distance) && !HasInArc(target, 2 * M_PI_F - arc);
-}
-
-bool WorldObject::isInFront(WorldObject const* target, float distance,  float arc) const
-{
-    return IsWithinDist(target, distance) && HasInArc(target, arc);
-}
-
-bool WorldObject::isInBack(WorldObject const* target, float distance, float arc) const
-{
-    return IsWithinDist(target, distance) && !HasInArc(target, 2 * M_PI_F - arc);
+    return (GetDistance2dToCenter(target) < NO_FACING_CHECKS_DISTANCE) || HasInArc(target);
 }
 
 bool WorldObject::GetRandomPoint(float x, float y, float z, float distance, float &rand_x, float &rand_y, float &rand_z) const
