@@ -229,7 +229,7 @@ pAuraHandler AuraHandler[TOTAL_AURAS] =
     &Aura::HandleAuraModRangedAttackPowerPercent,           //167 SPELL_AURA_MOD_RANGED_ATTACK_POWER_PCT
     &Aura::HandleNoImmediateEffect,                         //168 SPELL_AURA_MOD_DAMAGE_DONE_VERSUS            implemented in Unit::SpellDamageBonusDone, Unit::MeleeDamageBonusDone
     &Aura::HandleNoImmediateEffect,                         //169 SPELL_AURA_MOD_CRIT_PERCENT_VERSUS           implemented in Unit::DealDamageBySchool, Unit::DoAttackDamage, Unit::SpellCriticalBonus
-    &Aura::HandleNULL,                                      //170 SPELL_AURA_DETECT_AMORE       only for Detect Amore spell
+    &Aura::HandleDetectAmore,                               //170 SPELL_AURA_DETECT_AMORE       only for Detect Amore spell
     &Aura::HandleAuraModIncreaseSpeed,                      //171 SPELL_AURA_MOD_SPEED_NOT_STACK
     &Aura::HandleAuraModIncreaseMountedSpeed,               //172 SPELL_AURA_MOD_MOUNTED_SPEED_NOT_STACK
     &Aura::HandleUnused,                                    //173 SPELL_AURA_ALLOW_CHAMPION_SPELLS  only for Proclaim Champion spell
@@ -2040,6 +2040,20 @@ void Aura::HandleAuraDummy(bool apply, bool Real)
                         target->RemoveAurasDueToSpell(24659);
                     return;
                 }
+                case 26681:                             // Love is in the Air - Cologne
+                case 26682:                             // Love is in the Air - Perfume
+                {
+                    if (Player* pPlayer = ToPlayer(target))
+                    {
+                        if (apply)
+                        {
+                            pPlayer->CastSpell(pPlayer, 26802, true, nullptr, nullptr, GetCasterGuid()); // Detect Amore
+                        }
+                        else
+                            pPlayer->RemoveAurasDueToSpell(26802);
+                    }
+                    return;
+                }
                 case 24661:                                 // Restless Strength
                 {
                     if (apply)
@@ -2981,20 +2995,14 @@ void Aura::HandleModPossess(bool apply, bool Real)
         if (apply && pCaster->IsPlayer())
         {
             Player* pPlayerCaster = static_cast<Player*>(pCaster);
-            UpdateMask updateMask;
-            updateMask.SetCount(pTarget->GetValuesCount());
-            pTarget->MarkUpdateFieldsWithFlagForUpdate(updateMask, UF_FLAG_OWNER_ONLY);
-            if (updateMask.HasData())
-            {
-                UpdateData newData;
-                pTarget->BuildValuesUpdateBlockForPlayer(newData, updateMask, pPlayerCaster);
 
-                if (newData.HasData())
-                {
-                    WorldPacket newDataPacket;
-                    newData.BuildPacket(&newDataPacket);
-                    pPlayerCaster->SendDirectMessage(&newDataPacket);
-                }
+            UpdateData newData;
+            pTarget->BuildValuesUpdateBlockForPlayerWithFlags(newData, pPlayerCaster, UF_FLAG_OWNER_ONLY);
+            if (newData.HasData())
+            {
+                WorldPacket newDataPacket;
+                newData.BuildPacket(&newDataPacket);
+                pPlayerCaster->SendDirectMessage(&newDataPacket);
             }
         }
         pTarget->AddThreat(pCaster, pTarget->GetHealth(), false, GetSpellProto()->GetSpellSchoolMask());
@@ -3329,21 +3337,14 @@ void Aura::HandleModCharm(bool apply, bool Real)
         if (Player* pPlayerCaster = caster->ToPlayer())
         {
             pPlayerCaster->CharmSpellInitialize();
-            
-            UpdateMask updateMask;
-            updateMask.SetCount(target->GetValuesCount());
-            target->MarkUpdateFieldsWithFlagForUpdate(updateMask, UF_FLAG_OWNER_ONLY);
-            if (updateMask.HasData())
-            {
-                UpdateData newData;
-                target->BuildValuesUpdateBlockForPlayer(newData, updateMask, pPlayerCaster);
 
-                if (newData.HasData())
-                {
-                    WorldPacket newDataPacket;
-                    newData.BuildPacket(&newDataPacket);
-                    pPlayerCaster->SendDirectMessage(&newDataPacket);
-                }
+            UpdateData newData;
+            target->BuildValuesUpdateBlockForPlayerWithFlags(newData, pPlayerCaster, UF_FLAG_OWNER_ONLY);
+            if (newData.HasData())
+            {
+                WorldPacket newDataPacket;
+                newData.BuildPacket(&newDataPacket);
+                pPlayerCaster->SendDirectMessage(&newDataPacket);
             }
         }
     }
@@ -3804,6 +3805,14 @@ void Aura::HandleInvisibilityDetect(bool apply, bool Real)
     }
     if (Real && target->GetTypeId() == TYPEID_PLAYER)
         ((Player*)target)->GetCamera().UpdateVisibilityForOwner();
+}
+
+void Aura::HandleDetectAmore(bool apply, bool /*real*/)
+{
+    if (!GetTarget()->IsPlayer())
+        return;
+
+    GetTarget()->ApplyModByteFlag(PLAYER_FIELD_BYTES2, 1, PLAYER_FIELD_BYTE2_DETECT_AMORE, apply);
 }
 
 void Aura::HandleAuraModRoot(bool apply, bool Real)
@@ -5523,15 +5532,8 @@ void Aura::HandleAuraEmpathy(bool apply, bool /*Real*/)
     {
         if (Player* pPlayerCaster = ToPlayer(GetCaster()))
         {
-            UpdateMask updateMask;
-            updateMask.SetCount(target->GetValuesCount());
-            updateMask.SetBit(UNIT_FIELD_HEALTH);
-            updateMask.SetBit(UNIT_FIELD_MAXHEALTH);
-            target->MarkUpdateFieldsWithFlagForUpdate(updateMask, UF_FLAG_SPECIAL_INFO);
-
             UpdateData newData;
-            target->BuildValuesUpdateBlockForPlayer(newData, updateMask, pPlayerCaster);
-
+            target->BuildValuesUpdateBlockForPlayerWithFlags(newData, pPlayerCaster, UpdateFieldFlags(UF_FLAG_SPECIAL_INFO | UF_FLAG_DYNAMIC));
             if (newData.HasData())
             {
                 WorldPacket newDataPacket;
