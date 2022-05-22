@@ -1117,10 +1117,28 @@ uint32 Player::EnvironmentalDamage(EnvironmentalDamageType type, uint32 damage)
     uint32 absorb = 0;
     int32 resist = 0;
 
+    // if player is immune to the school, no packet should be sent
     if ((type == DAMAGE_LAVA) || (type == DAMAGE_FIRE))
+    {
+        if (IsImmuneToDamage(SPELL_SCHOOL_MASK_FIRE))
+            return 0;
+
         CalculateDamageAbsorbAndResist(this, SPELL_SCHOOL_MASK_FIRE, DIRECT_DAMAGE, damage, &absorb, &resist, nullptr);
+    }
     else if (type == DAMAGE_SLIME)
+    {
+        if (IsImmuneToDamage(SPELL_SCHOOL_MASK_NATURE))
+            return 0;
+
         CalculateDamageAbsorbAndResist(this, SPELL_SCHOOL_MASK_NATURE, DIRECT_DAMAGE, damage, &absorb, &resist, nullptr);
+    }
+    else if (type == DAMAGE_DROWNING)
+    {
+        if (IsImmuneToDamage(SPELL_SCHOOL_MASK_NORMAL))
+            return 0;
+
+        // drowning damage is not absorbable
+    }
 
     uint32 const bonus = (resist < 0 ? uint32(std::abs(resist)) : 0);
     damage += bonus;
@@ -1131,7 +1149,7 @@ uint32 Player::EnvironmentalDamage(EnvironmentalDamageType type, uint32 damage)
 
     SendEnvironmentalDamageLog(type, damage, absorb, resist);
 
-    uint32 final_damage = DealDamage(this, damage, nullptr, SELF_DAMAGE, SPELL_SCHOOL_MASK_NORMAL, nullptr, false);
+    damage = DealDamage(this, damage, nullptr, SELF_DAMAGE, SPELL_SCHOOL_MASK_NORMAL, nullptr, false);
 
     if (type == DAMAGE_FALL && !IsAlive())                  // DealDamage not apply item durability loss at self damage
     {
@@ -1142,7 +1160,7 @@ uint32 Player::EnvironmentalDamage(EnvironmentalDamageType type, uint32 damage)
         GetSession()->SendPacket(&data2);
     }
 
-    return final_damage;
+    return damage;
 }
 
 ///The player sobers by 256 every 10 seconds
@@ -7623,7 +7641,7 @@ void Player::CastItemUseSpell(Item* item, SpellCastTargets const& targets)
 
         RemoveAurasWithInterruptFlags(AURA_INTERRUPT_ITEM_USE_CANCELS, 0, false, spellInfo->HasAttribute(SPELL_ATTR_EX_NOT_BREAK_STEALTH));
 
-        Spell* spell = new Spell(this, spellInfo, (count > 0));
+        Spell* spell = new Spell(this, spellInfo, ((count > 0) || proto->HasExtraFlag(ITEM_EXTRA_CAST_AS_TRIGGERED)));
         spell->SetCastItem(item);
         spell->prepare(targets);
 
@@ -12488,7 +12506,7 @@ void Player::OnGossipSelect(WorldObject* pSource, uint32 gossipListId)
 
 uint32 Player::GetGossipTextId(WorldObject* pSource)
 {
-    if (!pSource || pSource->GetTypeId() != TYPEID_UNIT)
+    if (!pSource || !pSource->IsCreature() || pSource->IsPet())
         return DEFAULT_GOSSIP_MESSAGE;
 
     if (uint32 pos = sObjectMgr.GetNpcGossip(((Creature*)pSource)->GetGUIDLow()))
@@ -12644,19 +12662,27 @@ void Player::SendPreparedQuest(ObjectGuid guid)
         // need pet case for some quests
         if (Creature* pCreature = GetMap()->GetAnyTypeCreature(guid))
         {
-            uint32 textid = sObjectMgr.GetNpcGossip(pCreature->GetGUIDLow());
+            uint32 textId;
+            if (pCreature->GetDefaultGossipMenuId())
+                textId = GetGossipTextId(pCreature->GetDefaultGossipMenuId(), pCreature);
+            else
+                textId = GetGossipTextId(pCreature);
 
-            NpcText const* gossiptext = sObjectMgr.GetNpcText(textid);
-            if (gossiptext && gossiptext->Options[0].BroadcastTextID)
+            // do not show placeholder text as quest greeting
+            if (textId != DEFAULT_GOSSIP_MESSAGE)
             {
-                if (BroadcastText const* bct = sObjectMgr.GetBroadcastTextLocale(gossiptext->Options[0].BroadcastTextID))
+                NpcText const* gossiptext = sObjectMgr.GetNpcText(textId);
+                if (gossiptext && gossiptext->Options[0].BroadcastTextID)
                 {
-                    qe._Emote = bct->emoteId1;
-                    qe._Delay = bct->emoteDelay1;
-                    int loc_idx = GetSession()->GetSessionDbLocaleIndex();
-                    title = bct->GetText(loc_idx, pCreature->GetGender(), false);
+                    if (BroadcastText const* bct = sObjectMgr.GetBroadcastTextLocale(gossiptext->Options[0].BroadcastTextID))
+                    {
+                        qe._Emote = bct->emoteId1;
+                        qe._Delay = bct->emoteDelay1;
+                        int loc_idx = GetSession()->GetSessionDbLocaleIndex();
+                        title = bct->GetText(loc_idx, pCreature->GetGender(), false);
+                    }
+
                 }
-                
             }
         }
         PlayerTalkClass->SendQuestGiverQuestList(qe, title, guid);
@@ -22079,6 +22105,10 @@ void Player::CastHighestStealthRank()
 
     // no Stealth spell found
     if (!stealthSpellEntry)
+        return;
+
+    // not if prevented by faerie fire
+    if (IsImmuneToSpell(stealthSpellEntry, true))
         return;
 
     // reset cooldown on it if needed

@@ -750,6 +750,11 @@ void Spell::prepareDataForTriggerSystem()
                 if (m_spellInfo->IsFitToFamilyMask<CF_PRIEST_TOUCH_OF_WEAKNESS, CF_PRIEST_DEVOURING_PLAGUE>())
                     m_canTrigger = true;
                 break;
+            case SPELLFAMILY_GENERIC:
+                // Flash Bomb must be able to trigger Fear Ward
+                if (m_CastItem && m_spellInfo->Mechanic == MECHANIC_FEAR)
+                    m_canTrigger = true;
+                break;
             default:
                 break;
         }
@@ -1029,7 +1034,8 @@ void Spell::CheckAtDelay(TargetInfo* pInf)
     if (pTarget != m_caster &&
        ((!m_spellInfo->IsPositiveSpell(m_caster, pTarget) &&
          pTarget->IsImmuneToDamage(m_spellInfo->GetSpellSchoolMask(), m_spellInfo)) ||
-         pTarget->IsImmuneToSpell(m_spellInfo, pTarget == m_caster)))
+         pTarget->IsImmuneToSpell(m_spellInfo, pTarget == m_caster) ||
+         !CheckTargetCreatureType(pTarget)))
         pInf->missCondition = SPELL_MISS_IMMUNE;
 
     if (pTarget->IsCreature() && ((Creature*)pTarget)->IsInEvadeMode())
@@ -1652,7 +1658,8 @@ void Spell::DoSpellHitOnUnit(Unit* unit, uint32 effectMask)
                 unit->RemoveAurasWithInterruptFlags(AURA_INTERRUPT_HOSTILE_ACTION_RECEIVED_CANCELS);
 
             // not break stealth by cast targeting
-            if (!(m_spellInfo->AttributesEx & SPELL_ATTR_EX_NOT_BREAK_STEALTH))
+            // skip gobject caster because of buffs in wsg
+            if (!m_casterGo && !m_spellInfo->HasAttribute(SPELL_ATTR_EX_NOT_BREAK_STEALTH))
             {
                 unit->RemoveSpellsCausingAura(SPELL_AURA_MOD_STEALTH);
                 unit->RemoveNonPassiveSpellsCausingAura(SPELL_AURA_MOD_INVISIBILITY);
@@ -3112,25 +3119,9 @@ void Spell::SetTargetMap(SpellEffectIndex effIndex, uint32 targetMode, UnitList&
                     case TARGET_LOCATION_CASTER_RIGHT:       angle -= M_PI_F / 2;     break;
                 }
 
-                float x, y, z;
-                m_caster->GetNearPoint(m_caster, x, y, z, 0.0f, radius, angle);
-
-                // Hacky fix in case we are inside a cave, because GetNearPoint will update Z to above the cave.
-                // Example case: trap for gobject 178325, spell 21078
-                if ((m_caster->GetDistance(x, y, z) > radius * 2) &&
-                    !m_caster->IsWithinLOS(x, y, z, false))
-                {
-                    m_caster->GetPosition(x, y, z);
-                    m_caster->GetNearPoint2D(x, y, radius, angle);
-                }
-
-                // For some reason all the creature Blink spells use this target type instead of the player one.
-                // Prevent them from teleporting to places that they can't normally walk to like under the map.
-                if (m_spellInfo->Effect[effIndex] == SPELL_EFFECT_LEAP)
-                    if (!m_caster->GetMap()->GetWalkHitPosition(m_caster->GetTransport(), x, y, z, x, y, z, NAV_GROUND | NAV_WATER, 1.0f, false) || (abs(m_caster->GetPositionZ() - z) > 5.0f))
-                        m_caster->GetPosition(x, y, z);
-
-                m_targets.setDestination(x, y, z);
+                Position pos;
+                m_caster->GetFirstCollisionPosition(pos, radius, angle);
+                m_targets.setDestination(pos.x, pos.y, pos.z);
             }                
 
             if (m_casterUnit && targetUnitMap.empty())
@@ -3546,20 +3537,7 @@ SpellCastResult Spell::prepare(Aura* triggeredByAura, uint32 chance)
         ReSetTimer();
 
         if (!m_IsTriggeredSpell && m_casterUnit)
-        {
             m_casterUnit->RemoveAurasWithInterruptFlags(AURA_INTERRUPT_ACTION_CANCELS, m_spellInfo->Id, false, !ShouldRemoveStealthAuras());
-
-            // World of Warcraft Client Patch 1.10.0 (2006-03-28)
-            // - Stealth and Invisibility effects will now be canceled at the
-            //   beginning of an action(spellcast, ability use etc...), rather than
-            //   at the completion of the action.
-#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_9_4
-            // If timer = 0, it's an instant cast spell and will be casted on the next tick.
-            // Cast completion will remove all any stealth/invis auras
-            if (m_timer)
-                m_casterUnit->RemoveSpellsCausingAura(SPELL_AURA_MOD_INVISIBILITY);
-#endif
-        }
 
         OnSpellLaunch();
 
@@ -6780,8 +6758,9 @@ SpellCastResult Spell::CheckCast(bool strict)
                         if (!friendly_dispel && !positive && holder->GetSpellProto()->IsCharmSpell())
                             if (CharmInfo *charm = unit_target->GetCharmInfo())
                                 if (FactionTemplateEntry const* ft = charm->GetOriginalFactionTemplate())
-                                    if (charm->GetOriginalFactionTemplate()->IsFriendlyTo(*m_caster->GetFactionTemplateEntry()))
-                                        bFoundOneDispell = true;
+                                    if (FactionTemplateEntry const* ft2 = m_caster->GetFactionTemplateEntry())
+                                        if (charm->GetOriginalFactionTemplate()->IsFriendlyTo(*ft2))
+                                            bFoundOneDispell = true;
                         if (positive == friendly_dispel)
                             continue;
                     }

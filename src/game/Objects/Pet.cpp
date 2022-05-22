@@ -275,9 +275,6 @@ bool Pet::LoadPetFromDB(Player* owner, uint32 petEntry, uint32 petNumber, bool c
     if (getPetType() == SUMMON_PET)
         petlevel = owner->GetLevel();
 
-    if (owner->IsPvP())
-        SetPvP(true);
-
     SetCanModifyStats(true);
     InitStatsForLevel(petlevel);
     SetUInt32Value(UNIT_FIELD_PET_NAME_TIMESTAMP, uint32(time(nullptr)));
@@ -386,6 +383,9 @@ bool Pet::LoadPetFromDB(Player* owner, uint32 petEntry, uint32 petNumber, bool c
         else
             RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PLAYER_CONTROLLED);
     }
+
+    if (owner->IsPvP())
+        SetPvP(true);
 
     AIM_Initialize();
     map->Add((Creature*)this);
@@ -726,7 +726,7 @@ void Pet::Update(uint32 update_diff, uint32 diff)
 
 void Pet::RegenerateAll(uint32 update_diff, bool skipCombatCheck)
 {
-    if (m_regenTimer <= update_diff)
+    if (m_regenTimer <= static_cast<int64>(update_diff))
     {
         if (!IsInCombat() || IsPolymorphed())
             RegenerateHealth();
@@ -2261,6 +2261,7 @@ bool Pet::Create(uint32 guidlow, CreatureCreatePos& cPos, CreatureInfo const* ci
     if (!cPos.Relocate(this))
         return false;
 
+    SetDefaultGossipMenuId(cinfo->gossip_menu_id);
     SetSheath(SHEATH_STATE_MELEE);
     SetByteValue(UNIT_FIELD_BYTES_2, UNIT_BYTES_2_OFFSET_MISC_FLAGS, UNIT_BYTE2_FLAG_UNK3 | UNIT_BYTE2_FLAG_AURAS | UNIT_BYTE2_FLAG_UNK5);
 
