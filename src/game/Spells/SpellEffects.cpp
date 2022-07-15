@@ -862,14 +862,52 @@ void Spell::EffectDummy(SpellEffectIndex eff_idx)
                     m_caster->CastSpell(unitTarget, spell_id, true);
                     return;
                 }
-                case 7671:                                  // Transformation (human<->worgen)
+                case 7671:                                  // Pyrewood Transformation (Human <-> Worgen)
                 {
                     if (!unitTarget)
                         return;
-
-                    // Transform Visual
-                    unitTarget->CastSpell(unitTarget, 24085, true);
-                    return;
+                    
+                    switch (unitTarget->GetEntry())
+                    {
+                        case 1891: // Pyrewood Watcher
+                            unitTarget->ToCreature()->UpdateEntry(1892);
+                            break;
+                        case 1892: // Moonrage Watcher
+                            unitTarget->ToCreature()->UpdateEntry(1891);
+                            break;
+                        case 1893: // Moonrage Sentry
+                            unitTarget->ToCreature()->UpdateEntry(1894);
+                            break;
+                        case 1894: // Pyrewood Sentry
+                            unitTarget->ToCreature()->UpdateEntry(1893);
+                            break;
+                        case 1895: // Pyrewood Elder
+                            unitTarget->ToCreature()->UpdateEntry(1896);
+                            break;
+                        case 1896: // Moonrage Elder
+                            unitTarget->ToCreature()->UpdateEntry(1895);
+                            break;
+                        case 3528: // Pyrewood Armorer
+                            unitTarget->ToCreature()->UpdateEntry(3529);
+                            break;
+                        case 3529: // Moonrage Armorer
+                            unitTarget->ToCreature()->UpdateEntry(3528);
+                            break;
+                        case 3530: // Pyrewood Tailor
+                            unitTarget->ToCreature()->UpdateEntry(3531);
+                            break;
+                        case 3531: // Moonrage Tailor
+                            unitTarget->ToCreature()->UpdateEntry(3530);
+                            break;
+                        case 3532: // Pyrewood Leatherworker
+                            unitTarget->ToCreature()->UpdateEntry(3533);
+                            break;
+                        case 3533: // Moonrage Leatherworker
+                            unitTarget->ToCreature()->UpdateEntry(3532);
+                            break;
+                        default:
+                            return;
+                    };
                 }
                 case 8063:                                  // Deviate Fish
                 {
@@ -3038,7 +3076,6 @@ void Spell::EffectSummon(SpellEffectIndex eff_idx)
     spawnCreature->SetUInt32Value(UNIT_FIELD_PETNEXTLEVELEXP, 1000);
     spawnCreature->SetUInt32Value(UNIT_CREATED_BY_SPELL, m_spellInfo->Id);
     spawnCreature->SetUInt32Value(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_NONE);
-    spawnCreature->SetInitCreaturePowerType();
     spawnCreature->InitStatsForLevel(m_casterUnit->GetLevel(), m_casterUnit);
     spawnCreature->GetCharmInfo()->SetPetNumber(petNumber, false);
 
@@ -3572,7 +3609,6 @@ void Spell::EffectSummonGuardian(SpellEffectIndex eff_idx)
         spawnCreature->SetUInt32Value(UNIT_FIELD_PET_NAME_TIMESTAMP, 0);
         spawnCreature->SetUInt32Value(UNIT_CREATED_BY_SPELL, m_spellInfo->Id);
         spawnCreature->SetUInt32Value(UNIT_NPC_FLAGS, spawnCreature->GetCreatureInfo()->npc_flags);
-        spawnCreature->SetInitCreaturePowerType();
         spawnCreature->InitStatsForLevel(level, m_casterUnit);
         spawnCreature->GetCharmInfo()->SetPetNumber(petNumber, false);
 
@@ -3773,7 +3809,7 @@ void Spell::EffectEnchantItemPerm(SpellEffectIndex eff_idx)
     // remove old enchanting before applying new if equipped
     item_owner->ApplyEnchantment(itemTarget, PERM_ENCHANTMENT_SLOT, false);
 
-    itemTarget->SetEnchantment(PERM_ENCHANTMENT_SLOT, enchant_id, 0, 0);
+    itemTarget->SetEnchantment(PERM_ENCHANTMENT_SLOT, enchant_id, 0, 0, m_caster->GetObjectGuid());
 
     // add new enchanting if equipped
     item_owner->ApplyEnchantment(itemTarget, PERM_ENCHANTMENT_SLOT, true);
@@ -3824,7 +3860,7 @@ void Spell::EffectEnchantItemTmp(SpellEffectIndex eff_idx)
     // remove old enchant before applying new
     item_owner->ApplyEnchantment(itemTarget, TEMP_ENCHANTMENT_SLOT, false);
 
-    itemTarget->SetEnchantment(TEMP_ENCHANTMENT_SLOT, enchant_id, damage * 1000, charges);
+    itemTarget->SetEnchantment(TEMP_ENCHANTMENT_SLOT, enchant_id, damage * 1000, charges, m_caster->GetObjectGuid());
 
     // add new enchanting if equipped
     item_owner->ApplyEnchantment(itemTarget, TEMP_ENCHANTMENT_SLOT, true);
@@ -5884,7 +5920,7 @@ void Spell::EffectEnchantHeldItem(SpellEffectIndex eff_idx)
             return;
 
         // Apply the temporary enchantment
-        item->SetEnchantment(slot, enchant_id, duration, charges);
+        item->SetEnchantment(slot, enchant_id, duration, charges, m_caster->GetObjectGuid());
         item_owner->ApplyEnchantment(item, slot, true);
     }
 }
@@ -6313,7 +6349,7 @@ void Spell::EffectSummonCritter(SpellEffectIndex eff_idx)
 
     critter->AIM_Initialize();
     critter->InitPetCreateSpells();                         // e.g. disgusting oozeling has a create spell as critter...
-    critter->SelectLevel(critter->GetCreatureInfo());       // some summoned creatures have different from 1 DB data for level/hp
+    critter->SelectLevel();                                 // some summoned creatures have different from 1 DB data for level/hp
 
     map->Add((Creature*)critter);
     player->_SetMiniPet(critter);
