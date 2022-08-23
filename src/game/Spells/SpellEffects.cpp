@@ -697,15 +697,6 @@ void Spell::EffectDummy(SpellEffectIndex eff_idx)
                     }
                     return;
                 }
-                case 26471: // Lunar Festival Port Error
-                {
-                    if (!m_caster->IsPlayer())
-                        return;
-
-                    m_caster->RemoveSpellCooldown(26373); // Remove cooldown from Lunar Invititation
-                    SendCastResult(SPELL_FAILED_NOT_HERE);
-                    return;
-                }
                 case 24531: // Refocus : "Instantly clears the cooldowns of Aimed Shot, Multishot, Volley, and Arcane Shot."
                 {
                     if (!m_caster->IsPlayer())
@@ -1538,8 +1529,6 @@ void Spell::EffectDummy(SpellEffectIndex eff_idx)
                 case 8897:                                 // Destroy Rocket Boots
                 {
                     m_caster->CastSpell(unitTarget, 8893, true);
-                    m_caster->CastSpell(unitTarget, 13158, true);
-
                     return;
                 }
                 case 23185:                                 // Aura of Frost
@@ -3611,6 +3600,14 @@ void Spell::EffectSummonGuardian(SpellEffectIndex eff_idx)
         spawnCreature->SetUInt32Value(UNIT_NPC_FLAGS, spawnCreature->GetCreatureInfo()->npc_flags);
         spawnCreature->InitStatsForLevel(level, m_casterUnit);
         spawnCreature->GetCharmInfo()->SetPetNumber(petNumber, false);
+
+        if (uint32 totalGuardians = m_casterUnit->GetGuardiansCount() + (m_casterUnit->GetPetGuid().IsEmpty() ? 0 : 1))
+        {
+            float followAngle = PET_FOLLOW_ANGLE + (M_PI_F / 6) * totalGuardians;
+            while (followAngle > M_PI_F * 2)
+                followAngle -= M_PI_F * 2;
+            spawnCreature->SetFollowAngle(followAngle);
+        }
 
         spawnCreature->AIM_Initialize();
         spawnCreature->LoadCreatureAddon();

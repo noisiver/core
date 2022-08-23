@@ -1488,7 +1488,11 @@ SpellAuraProcResult Unit::HandleProcTriggerSpellAuraProc(Unit* pVictim, uint32 d
                         sLog.outError("Unit::HandleProcTriggerSpell: Spell %u miss posibly Judgement of Light/Wisdom", auraSpellInfo->Id);
                         return SPELL_AURA_PROC_FAILED;
                 }
-                pVictim->CastSpell(pVictim, trigger_spell_id, true, castItem, triggeredByAura);
+
+                // Intentionally do not pass triggeredByAura here.
+                // Seal of Light healing is done by the person who attacks,
+                // and does not increase threat of the original caster.
+                pVictim->CastSpell(pVictim, trigger_spell_id, true, castItem);
                 return SPELL_AURA_PROC_OK;                        // no hidden cooldown
             }
             // Illumination
@@ -1772,7 +1776,7 @@ SpellAuraProcResult Unit::HandleOverrideClassScriptAuraProc(Unit* pVictim, uint3
 SpellAuraProcResult Unit::HandleModCastingSpeedNotStackAuraProc(Unit* /*pVictim*/, uint32 /*damage*/, Aura* /*triggeredByAura*/, SpellEntry const* procSpell, uint32 /*procFlag*/, uint32 /*procEx*/, uint32 /*cooldown*/)
 {
     // Skip melee hits or instant cast spells
-    return !(procSpell == nullptr || procSpell->GetCastTime() == 0) ? SPELL_AURA_PROC_OK : SPELL_AURA_PROC_FAILED;
+    return !(procSpell == nullptr || procSpell->GetCastTime(this) == 0) ? SPELL_AURA_PROC_OK : SPELL_AURA_PROC_FAILED;
 }
 
 SpellAuraProcResult Unit::HandleReflectSpellsSchoolAuraProc(Unit* /*pVictim*/, uint32 /*damage*/, Aura* triggeredByAura, SpellEntry const* procSpell, uint32 /*procFlag*/, uint32 /*procEx*/, uint32 /*cooldown*/)
