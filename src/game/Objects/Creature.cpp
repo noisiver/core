@@ -1925,8 +1925,10 @@ float Creature::GetAttackDistance(Unit const* pTarget) const
     if (pTarget->IsPet() && !static_cast<Pet const*>(pTarget)->IsEnabled())
         return 0.0f;
 
-    uint32 const targetlevel = pTarget->GetLevelForTarget(this);
-    uint32 const creaturelevel = GetLevelForTarget(pTarget);
+    // pets and charmed mobs use owner level
+    Player* pPlayer = pTarget->GetCharmerOrOwnerPlayer();
+    uint32 const targetlevel = pPlayer ? pPlayer->GetLevelForTarget(this) : pTarget->GetLevelForTarget(this);
+    uint32 const creaturelevel = GetLevelForTarget(pPlayer ? pPlayer : pTarget);
 
     int32 leveldif = int32(targetlevel) - int32(creaturelevel);
 
@@ -1970,7 +1972,9 @@ void Creature::SetDeathState(DeathState s)
 
         uint32 respawnDelay = m_respawnDelay;
         ApplyDynamicRespawnDelay(respawnDelay, data);
-        m_corpseDecayTimer = m_corpseDelay * IN_MILLISECONDS; // the max/default time for corpse decay (before creature is looted/AllLootRemovedFromCorpse() is called)
+
+        // the max/default time for corpse decay (before creature is looted/AllLootRemovedFromCorpse() is called)
+        m_corpseDecayTimer = HasExtraFlag(CREATURE_FLAG_EXTRA_DESPAWN_INSTANTLY) ? 1 : m_corpseDelay * IN_MILLISECONDS;
 
         if (data)
         {
@@ -2016,7 +2020,7 @@ void Creature::SetDeathState(DeathState s)
 
     if (s == JUST_ALIVED)
     {
-        ClearUnitState(UNIT_STAT_ALL_STATE);
+        ClearUnitState(UNIT_STAT_ALL_DYN_STATES);
 
         CreatureInfo const* cinfo = GetCreatureInfo();
 
@@ -2727,15 +2731,22 @@ void Creature::SetInCombatWithZone(bool initialPulse)
         return;
 
     if (!HasCreatureState(CSTATE_COMBAT_WITH_ZONE))
+    {
         UpdateCombatWithZoneState(true);
+
+        // Attack closest player first.
+        // Prevent case where boss runs to somebody who just entered raid.
+        if (initialPulse && !GetVictim() && AI())
+        {
+            if (Player* pPlayer = FindNearestHostilePlayer(MAX_VISIBILITY_DISTANCE))
+                AI()->AttackStart(pPlayer);
+        }
+    }
 
     for (const auto& i : PlList)
     {
         if (Player* pPlayer = i.getSource())
         {
-            if (pPlayer->IsGameMaster())
-                continue;
-
             if (!initialPulse && pPlayer->IsInCombat())
                 continue;
 
