@@ -112,6 +112,32 @@ enum UnitStandStateType
 
 #define MAX_UNIT_STAND_STATE             9
 
+static char const* UnitStandStateToString(uint32 state)
+{
+    switch (state)
+    {
+        case UNIT_STAND_STATE_STAND:
+            return "Stand";
+        case UNIT_STAND_STATE_SIT:
+            return "Sit";
+        case UNIT_STAND_STATE_SIT_CHAIR:
+            return "Sit Chair";
+        case UNIT_STAND_STATE_SLEEP:
+            return "Sleep";
+        case UNIT_STAND_STATE_SIT_LOW_CHAIR:
+            return "Sit Low Chair";
+        case UNIT_STAND_STATE_SIT_MEDIUM_CHAIR:
+            return "Sit Medium Chair";
+        case UNIT_STAND_STATE_SIT_HIGH_CHAIR:
+            return "Sit High Chair";
+        case UNIT_STAND_STATE_DEAD:
+            return "Dead";
+        case UNIT_STAND_STATE_KNEEL:
+            return "Kneel";
+    }
+    return "UNKNOWN";
+}
+
 // byte flags value (UNIT_FIELD_BYTES_1,3)
 // These flags seem to be related to visibility
 // In wotlk+ they are moved to UNIT_FIELD_BYTES_1,2
@@ -132,6 +158,20 @@ enum SheathState
 };
 
 #define MAX_SHEATH_STATE    3
+
+static char const* SheathStateToString(uint32 state)
+{
+    switch (state)
+    {
+        case SHEATH_STATE_UNARMED:
+            return "Unarmed";
+        case SHEATH_STATE_MELEE:
+            return "Melee";
+        case SHEATH_STATE_RANGED:
+            return "Ranged";
+    }
+    return "UNKNOWN";
+}
 
 // byte flags value (UNIT_FIELD_BYTES_2,1)
 enum UnitBytes2_Flags
@@ -335,14 +375,14 @@ enum UnitState
     UNIT_STAT_FLYING_ALLOWED        = 0x00400000,               // has gm fly mode enabled
 
     // High-level states
-    //UNIT_STAT_NO_COMBAT_MOVEMENT = 0x01000000,
-    UNIT_STAT_RUNNING            = 0x02000000,
+    UNIT_STAT_RUNNING            = 0x00800000,
 
-    UNIT_STAT_ALLOW_INCOMPLETE_PATH = 0x04000000, // allow movement with incomplete or partial paths
-    UNIT_STAT_ALLOW_LOS_ATTACK      = 0x08000000, // allow melee attacks without LoS
+    UNIT_STAT_ALLOW_INCOMPLETE_PATH = 0x01000000, // allow movement with incomplete or partial paths
+    UNIT_STAT_ALLOW_LOS_ATTACK      = 0x02000000, // allow melee attacks without LoS
 
-    UNIT_STAT_NO_SEARCH_FOR_OTHERS   = 0x10000000, // MoveInLineOfSight will not be called
-    UNIT_STAT_NO_BROADCAST_TO_OTHERS = 0x20000000, // ScheduleAINotify will not be called
+    UNIT_STAT_NO_SEARCH_FOR_OTHERS   = 0x04000000, // MoveInLineOfSight will not be called
+    UNIT_STAT_NO_BROADCAST_TO_OTHERS = 0x08000000, // ScheduleAINotify will not be called
+    UNIT_STAT_AI_USES_MOVE_IN_LOS    = 0x10000000, // AI overrides MoveInLineOfSight so always search for others
 
     // masks (only for check)
 
@@ -354,7 +394,7 @@ enum UnitState
                                 UNIT_STAT_DISTRACTED,
 
     // stay or scripted movement for effect( = in player case you can't move by client command)
-    UNIT_STAT_NO_FREE_MOVE    = UNIT_STAT_ROOT | UNIT_STAT_STUNNED | UNIT_STAT_FEIGN_DEATH |
+    UNIT_STAT_NO_FREE_MOVE    = UNIT_STAT_ROOT | UNIT_STAT_STUNNED |
                                 UNIT_STAT_TAXI_FLIGHT |
                                 UNIT_STAT_CONFUSED | UNIT_STAT_FLEEING,
 
@@ -374,7 +414,7 @@ enum UnitState
     UNIT_STAT_MOVING          = UNIT_STAT_ROAMING_MOVE | UNIT_STAT_CHASE_MOVE | UNIT_STAT_FOLLOW_MOVE | UNIT_STAT_FLEEING_MOVE,
 
     UNIT_STAT_ALL_STATE       = 0xFFFFFFFF,
-    UNIT_STAT_ALL_DYN_STATES  = UNIT_STAT_ALL_STATE & ~(UNIT_STAT_RUNNING | UNIT_STAT_IGNORE_PATHFINDING | UNIT_STAT_NO_SEARCH_FOR_OTHERS | UNIT_STAT_NO_BROADCAST_TO_OTHERS),
+    UNIT_STAT_ALL_DYN_STATES  = UNIT_STAT_ALL_STATE & ~(UNIT_STAT_RUNNING | UNIT_STAT_IGNORE_PATHFINDING | UNIT_STAT_NO_SEARCH_FOR_OTHERS | UNIT_STAT_NO_BROADCAST_TO_OTHERS | UNIT_STAT_AI_USES_MOVE_IN_LOS),
 };
 
 static char const* UnitStateToString(uint32 state)
@@ -435,6 +475,8 @@ static char const* UnitStateToString(uint32 state)
             return "No Search for Others";
         case UNIT_STAT_NO_BROADCAST_TO_OTHERS:
             return "No Broadcast to Others";
+        case UNIT_STAT_AI_USES_MOVE_IN_LOS:
+            return "AI Uses Move in LoS";
     }
     return "UNKNOWN";
 }
@@ -540,7 +582,7 @@ enum ReactStates
     REACT_AGGRESSIVE = 2
 };
 
-inline char const* ReactStateToString(uint32 reactState)
+static char const* ReactStateToString(uint32 reactState)
 {
     switch (reactState)
     {
@@ -562,7 +604,7 @@ enum CommandStates
     COMMAND_DISMISS = 3
 };
 
-inline char const* CommandStateToString(uint32 commandState)
+static char const* CommandStateToString(uint32 commandState)
 {
     switch (commandState)
     {
@@ -621,19 +663,6 @@ enum AddAuraFlags
     ADD_AURA_PASSIVE = 0x04,
     ADD_AURA_PERMANENT = 0x08,
 };
-
-
-enum UnitDebugFlags
-{
-    DEBUG_SPELL_COMPUTE_RESISTS = 0x01,
-    DEBUG_PACKETS_RECV          = 0x02,
-    DEBUG_PACKETS_SEND          = 0x04,
-    DEBUG_AI                    = 0x08,
-    DEBUG_DR                    = 0x10,
-    DEBUG_CHEAT                 = 0x20,
-    DEBUG_PROCS                 = 0x40,
-};
-
 
 enum TeleportToOptions
 {
