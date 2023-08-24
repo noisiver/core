@@ -197,7 +197,7 @@ struct PlayerCreateInfoItem
     uint32 item_amount;
 };
 
-typedef std::list<PlayerCreateInfoItem> PlayerCreateInfoItems;
+typedef std::vector<PlayerCreateInfoItem> PlayerCreateInfoItems;
 
 struct PlayerClassLevelInfo
 {
@@ -215,7 +215,7 @@ struct PlayerLevelInfo
     uint8 stats[MAX_STATS] = { 0 };
 };
 
-typedef std::list<uint32> PlayerCreateInfoSpells;
+typedef std::vector<uint32> PlayerCreateInfoSpells;
 
 struct PlayerCreateInfoAction
 {
@@ -227,7 +227,7 @@ struct PlayerCreateInfoAction
     uint32 action = 0;
 };
 
-typedef std::list<PlayerCreateInfoAction> PlayerCreateInfoActions;
+typedef std::vector<PlayerCreateInfoAction> PlayerCreateInfoActions;
 
 struct PlayerInfo
 {
@@ -2178,7 +2178,7 @@ class Player final: public Unit
         void SendMessageToSetInRange(WorldPacket* data, float fist, bool self) const override;
         void SendMessageToSetInRange(WorldPacket* data, float dist, bool self, bool own_team_only) const;
         void SendInitWorldStates(uint32 zone) const;
-        void SendUpdateWorldState(uint32 field, uint32 value) const;
+        void SendUpdateWorldState(uint32 state, uint32 value) const;
         void SendDirectMessage(WorldPacket* data) const;
 
         uint32 GetTotalPlayedTime() const { return m_playedTime[PLAYED_TIME_TOTAL]; }
