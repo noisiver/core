@@ -1786,6 +1786,8 @@ void Aura::HandleAuraDummy(bool apply, bool Real)
                         m_modifier.periodictime = 5 * IN_MILLISECONDS; // expected to tick with 5 sec period
                         return;
                     }
+                    case 16739: // Orb of Deception (before patch 1.7)
+                        return HandleAuraTransform(apply, Real);
                     case 21827: // Frostwolf Aura DND
                     case 21863: // Alterac Ram Aura DND
                     {
@@ -1966,6 +1968,8 @@ void Aura::HandleAuraDummy(bool apply, bool Real)
 
                 return;
             }
+            case 16739: // Orb of Deception (before patch 1.7)
+                return HandleAuraTransform(apply, Real);
             case 20939: // Undying Soul - Dummy aura used for Unstuck command
             {
                 if (m_removeMode == AURA_REMOVE_BY_EXPIRE)
@@ -2593,6 +2597,11 @@ void Aura::HandleAuraModShapeshift(bool apply, bool Real)
             switch (form)
             {
                 case FORM_CAT:
+#if SUPPORTED_CLIENT_BUILD == CLIENT_BUILD_1_11_2
+                    // World of Warcraft Client Patch 1.12.0 (2006-08-22)
+                    // - Furor: This talent now works correctly with Cat Form again.
+                    break;
+#endif
                 case FORM_BEAR:
                 case FORM_DIREBEAR:
                 {
@@ -4528,6 +4537,7 @@ float Aura::CalculateDotDamage() const
     {
         case SPELLFAMILY_DRUID:
         {
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_11_2
             // Rip
             if (spellProto->IsFitToFamilyMask<CF_DRUID_RIP_BITE>())
             {
@@ -4540,6 +4550,7 @@ float Aura::CalculateDotDamage() const
                     damage += caster->GetTotalAttackPowerValue(BASE_ATTACK) * cp / 100;
                 }
             }
+#endif
             break;
         }
         case SPELLFAMILY_ROGUE:
@@ -5191,7 +5202,6 @@ void Aura::HandleAuraModCritPercent(bool apply, bool Real)
     if (GetSpellProto()->EquippedItemClass == -1)
     {
         ((Player*)target)->HandleBaseModValue(CRIT_PERCENTAGE,         FLAT_MOD, m_modifier.m_amount, apply);
-        ((Player*)target)->HandleBaseModValue(OFFHAND_CRIT_PERCENTAGE, FLAT_MOD, m_modifier.m_amount, apply);
         ((Player*)target)->HandleBaseModValue(RANGED_CRIT_PERCENTAGE,  FLAT_MOD, m_modifier.m_amount, apply);
     }
     else
@@ -5974,10 +5984,16 @@ void Aura::PeriodicTick(SpellEntry const* sProto, AuraType auraType, uint32 data
             if (!pCaster)
                 return;
 
-            if (spellProto->Effect[GetEffIndex()] == SPELL_EFFECT_PERSISTENT_AREA_AURA &&
-                pCaster->SpellHitResult(target, spellProto, GetEffIndex(), false) != SPELL_MISS_NONE)
-                return;
-
+            if (spellProto->Effect[GetEffIndex()] == SPELL_EFFECT_PERSISTENT_AREA_AURA)
+            {
+                SpellMissInfo result = pCaster->SpellHitResult(target, spellProto, GetEffIndex(), false);
+                if (result != SPELL_MISS_NONE)
+                {
+                    pCaster->SendSpellMiss(target, GetId(), result);
+                    return;
+                }
+            }
+            
             // Check for immune (not use charges)
             if (!spellProto->HasAttribute(SPELL_ATTR_NO_IMMUNITIES)) // confirmed Impaling spine goes through immunity
             {
@@ -6082,9 +6098,15 @@ void Aura::PeriodicTick(SpellEntry const* sProto, AuraType auraType, uint32 data
             if (!pCaster->IsInWorld() || !pCaster->IsAlive())
                 return;
 
-            if (spellProto->Effect[GetEffIndex()] == SPELL_EFFECT_PERSISTENT_AREA_AURA &&
-                    pCaster->SpellHitResult(target, spellProto, GetEffIndex(), false) != SPELL_MISS_NONE)
-                return;
+            if (spellProto->Effect[GetEffIndex()] == SPELL_EFFECT_PERSISTENT_AREA_AURA)
+            {
+                SpellMissInfo result = pCaster->SpellHitResult(target, spellProto, GetEffIndex(), false);
+                if (result != SPELL_MISS_NONE)
+                {
+                    pCaster->SendSpellMiss(target, GetId(), result);
+                    return;
+                }
+            }       
 
             // Check for immune
             if (!spellProto->HasAttribute(SPELL_ATTR_NO_IMMUNITIES))
@@ -6271,9 +6293,15 @@ void Aura::PeriodicTick(SpellEntry const* sProto, AuraType auraType, uint32 data
             if (!pCaster->IsAlive())
                 return;
 
-            if (GetSpellProto()->Effect[GetEffIndex()] == SPELL_EFFECT_PERSISTENT_AREA_AURA &&
-                    pCaster->SpellHitResult(target, spellProto, GetEffIndex(), false) != SPELL_MISS_NONE)
-                return;
+            if (spellProto->Effect[GetEffIndex()] == SPELL_EFFECT_PERSISTENT_AREA_AURA)
+            {
+                SpellMissInfo result = pCaster->SpellHitResult(target, spellProto, GetEffIndex(), false);
+                if (result != SPELL_MISS_NONE)
+                {
+                    pCaster->SendSpellMiss(target, GetId(), result);
+                    return;
+                }
+            }
 
             // Check for immune (not use charges)
             if (!spellProto->HasAttribute(SPELL_ATTR_NO_IMMUNITIES)) // confirmed Impaling spine goes through immunity
@@ -7623,7 +7651,11 @@ void SpellAuraHolder::SetAuraFlag(uint32 slot, bool add)
     {
         uint32 flags = AFLAG_NONE;
 
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_6_1
         if (IsPositive() && !m_spellProto->HasAttribute(SPELL_ATTR_NO_AURA_CANCEL))
+#else
+        if (IsPositive())
+#endif
             flags |= AFLAG_CANCELABLE;
 
         if (GetAuraByEffectIndex(EFFECT_INDEX_0))
