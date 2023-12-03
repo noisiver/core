@@ -2589,13 +2589,13 @@ void Player::ProcessDelayedOperations()
     {
         ResurrectPlayer(0.0f, false);
 
-        if (GetMaxHealth() > m_resurrectHealth)
-            SetHealth(m_resurrectHealth);
+        if (GetMaxHealth() > m_resurrectData.health)
+            SetHealth(m_resurrectData.health);
         else
             SetHealth(GetMaxHealth());
 
-        if (GetMaxPower(POWER_MANA) > m_resurrectMana)
-            SetPower(POWER_MANA, m_resurrectMana);
+        if (GetMaxPower(POWER_MANA) > m_resurrectData.mana)
+            SetPower(POWER_MANA, m_resurrectData.mana);
         else
             SetPower(POWER_MANA, GetMaxPower(POWER_MANA));
 
@@ -3040,7 +3040,8 @@ bool Player::CanSeeHealthOf(Unit const* pTarget) const
 
 bool Player::CanSeeSpecialInfoOf(Unit const* pTarget) const
 {
-    return pTarget->HasAuraTypeByCaster(SPELL_AURA_EMPATHY, GetObjectGuid());
+    return HasCheatOption(PLAYER_CHEAT_DEBUG_TARGET_INFO) ||
+           pTarget->HasAuraTypeByCaster(SPELL_AURA_EMPATHY, GetObjectGuid());
 }
 
 struct SetGameMasterOnHelper
@@ -3292,6 +3293,39 @@ void Player::SetCheatIgnoreTriggers(bool on, bool notify)
     if (notify)
     {
         GetSession()->SendNotification(on ? LANG_CHEAT_IGNORE_TRIGGERS_ON : LANG_CHEAT_IGNORE_TRIGGERS_OFF);
+    }
+}
+
+void Player::SetCheatDebugTargetInfo(bool on, bool notify)
+{
+    SetCheatOption(PLAYER_CHEAT_DEBUG_TARGET_INFO, on);
+
+    if (notify)
+    {
+        GetSession()->SendNotification(on ? LANG_CHEAT_DEBUG_TARGET_INFO_ON : LANG_CHEAT_DEBUG_TARGET_INFO_OFF);
+
+        for (auto const& guid : m_visibleGUIDs)
+        {
+            if (!guid.IsUnit())
+                continue;
+
+            Unit* pUnit = GetMap()->GetUnit(guid);
+            if (!pUnit)
+                continue;
+
+            uint16 updateFlags = UF_FLAG_DYNAMIC;
+            if (on)
+                updateFlags |= UF_FLAG_SPECIAL_INFO;
+
+            UpdateData newData;
+            pUnit->BuildValuesUpdateBlockForPlayerWithFlags(newData, this, UpdateFieldFlags(updateFlags), true);
+            if (newData.HasData())
+            {
+                WorldPacket newDataPacket;
+                newData.BuildPacket(&newDataPacket);
+                SendDirectMessage(&newDataPacket);
+            }
+        }
     }
 }
 
@@ -20264,8 +20298,33 @@ uint32 Player::GetBaseWeaponSkillValue(WeaponAttackType attType) const
 void Player::ResurectUsingRequestData()
 {
     // Teleport before resurrecting by player, otherwise the player might get attacked from creatures near his corpse
-    if (m_resurrectGuid.IsPlayer())
-        TeleportTo(m_resurrectMap, m_resurrectX, m_resurrectY, m_resurrectZ, GetOrientation());
+    if (m_resurrectData.resurrectorGuid.IsPlayer())
+    {
+        // If player is no longer saved the same instance, teleport to entrance instead.
+        // Prevents death exploit to reset dungeon and teleport directly to end boss.
+        if (m_resurrectData.instanceId && m_resurrectData.location.mapId != GetMapId() &&
+            sMapStorage.LookupEntry<MapEntry>(m_resurrectData.location.mapId)->IsDungeon())
+        {
+            DungeonPersistentState* state = GetBoundInstanceSaveForSelfOrGroup(m_resurrectData.location.mapId);
+            if (!state || state->GetInstanceId() != m_resurrectData.instanceId)
+            {
+                if (AreaTriggerTeleport const* at = sObjectMgr.GetMapEntranceTrigger(m_resurrectData.location.mapId))
+                    m_resurrectData.location = at->destination;
+                else if (AreaTriggerTeleport const* at = sObjectMgr.GetGoBackTrigger(m_resurrectData.location.mapId))
+                    m_resurrectData.location = at->destination;
+                else
+                {
+                    m_resurrectData.location.mapId = GetMapId();
+                    m_resurrectData.location.x = GetPositionX();
+                    m_resurrectData.location.y = GetPositionY();
+                    m_resurrectData.location.z = GetPositionZ();
+                    m_resurrectData.location.o = GetOrientation();
+                }
+            }
+        }
+
+        TeleportTo(m_resurrectData.location);
+    }
 
     // We cannot resurrect player when we triggered any kind of teleport
     // Player will be resurrected upon teleportation (in MSG_MOVE_TELEPORT_ACK handler)
@@ -20277,13 +20336,13 @@ void Player::ResurectUsingRequestData()
 
     ResurrectPlayer(0.0f, false);
 
-    if (GetMaxHealth() > m_resurrectHealth)
-        SetHealth(m_resurrectHealth);
+    if (GetMaxHealth() > m_resurrectData.health)
+        SetHealth(m_resurrectData.health);
     else
         SetHealth(GetMaxHealth());
 
-    if (GetMaxPower(POWER_MANA) > m_resurrectMana)
-        SetPower(POWER_MANA, m_resurrectMana);
+    if (GetMaxPower(POWER_MANA) > m_resurrectData.mana)
+        SetPower(POWER_MANA, m_resurrectData.mana);
     else
         SetPower(POWER_MANA, GetMaxPower(POWER_MANA));
 
@@ -21209,6 +21268,21 @@ bool Player::TeleportToHomebind(uint32 options, bool hearthCooldown)
         }
     }
     return TeleportTo(m_homebind, (options | TELE_TO_FORCE_MAP_CHANGE));
+}
+
+Unit* Player::GetSelectedUnit()
+{
+    return GetMap()->GetUnit(m_curSelectionGuid);
+}
+
+Creature* Player::GetSelectedCreature()
+{
+    return GetMap()->GetCreature(m_curSelectionGuid);
+}
+
+Player* Player::GetSelectedPlayer()
+{
+    return GetMap()->GetPlayer(m_curSelectionGuid);
 }
 
 Object* Player::GetObjectByTypeMask(ObjectGuid guid, TypeMask typemask)

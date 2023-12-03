@@ -146,8 +146,6 @@ Unit::Unit()
         m_createResistance = 0;
 
     m_attacking = nullptr;
-    m_modMeleeHitChance = 0.0f;
-    m_modRangedHitChance = 0.0f;
     m_modSpellHitChance = 0.0f;
     m_baseSpellCritChance = 5;
 
@@ -340,10 +338,6 @@ AutoAttackCheckResult Unit::CanAutoAttackTarget(Unit const* pVictim) const
         return ATTACK_RESULT_DEAD;
 
     if (!CanReachWithMeleeAutoAttack(pVictim))
-        return ATTACK_RESULT_NOT_IN_RANGE;
-
-    // Creature attacks should probably ignore LoS too, but it might open up exploits.
-    if (!(IsPlayer() && pVictim->IsPlayer()) && !HasUnitState(UNIT_STAT_ALLOW_LOS_ATTACK) && !IsWithinLOSInMap(pVictim))
         return ATTACK_RESULT_NOT_IN_RANGE;
 
     if (GetDistance2dToCenter(pVictim) > NO_FACING_CHECKS_DISTANCE)
@@ -1023,7 +1017,7 @@ void Unit::Kill(Unit* pVictim, SpellEntry const* spellProto, bool durabilityLoss
 
     // To be replaced if possible using ProcDamageAndSpell
     if (pVictim != this) // The one who has the fatal blow
-        ProcDamageAndSpell(ProcSystemArguments(pVictim, PROC_FLAG_KILL, PROC_FLAG_HEARTBEAT, PROC_EX_NONE, 0));
+        ProcDamageAndSpell(ProcSystemArguments(pVictim, PROC_FLAG_KILL, PROC_FLAG_HEARTBEAT, PROC_EX_NONE, 0, 0));
 
     DEBUG_FILTER_LOG(LOG_FILTER_DAMAGE, "DealDamageAttackStop");
 
@@ -1880,6 +1874,27 @@ void Unit::CalculateDamageAbsorbAndResist(SpellCaster* pCaster, SpellSchoolMask 
             // Need remove it later
             if (mod->m_amount <= 0)
                 existExpired = true;
+
+#if SUPPORTED_CLIENT_BUILD <= CLIENT_BUILD_1_10_2
+            // Patch 1.11.0 changed Mage talent Improved Frost Ward to Frost Warding.
+            // Improved Frost Ward - 50% of the damage absorbed by your Frost Ward is added to your mana.
+            SpellEntry const* absorbProto = (*i)->GetSpellProto();
+            if (absorbProto->IsFitToFamily<SPELLFAMILY_MAGE, CF_MAGE_FROST_WARD>() && HasAura(11189))
+                CastCustomSpell(this, 27679, currentAbsorb / 2, {}, {}, true);
+            else if (absorbProto->IsFitToFamily<SPELLFAMILY_MAGE, CF_MAGE_FIRE_WARD>())
+            {
+                Unit::AuraList const& mOverrideClassScript = GetAurasByType(SPELL_AURA_OVERRIDE_CLASS_SCRIPTS);
+                for (const auto i : mOverrideClassScript)
+                    // Patch 1.11.0 changed Mage talent Improved Fire Ward.
+                    // Old effect - Causes your Fire Ward to reflect 20%/35% of the Fire damage absorbed back to the caster.
+                    // The % values don't show up anywhere in dbcs other than the tooltip
+                    if (i->GetModifier()->m_miscvalue == 948)
+                        if (i->GetId() == 11094) // Improved Fire Ward 1
+                            CastCustomSpell(pCaster->ToUnit(), 12559, 0.2f * currentAbsorb, {}, {}, true);
+                        else if (i->GetId() == 13043) // Improved Fire Ward 2
+                            CastCustomSpell(pCaster->ToUnit(), 12559, 0.35f * currentAbsorb, {}, {}, true);
+            }
+#endif
         }
 
         // Remove all expired absorb auras
@@ -2101,7 +2116,7 @@ void Unit::AttackerStateUpdate(Unit* pVictim, WeaponAttackType attType, bool ext
     }
 
     SendAttackStateUpdate(&damageInfo);
-    ProcDamageAndSpell(ProcSystemArguments(damageInfo.target, damageInfo.procAttacker, damageInfo.procVictim, damageInfo.procEx, damageInfo.totalDamage, damageInfo.attackType));
+    ProcDamageAndSpell(ProcSystemArguments(damageInfo.target, damageInfo.procAttacker, damageInfo.procVictim, damageInfo.procEx, damageInfo.totalDamage, damageInfo.totalDamage + damageInfo.totalAbsorb + damageInfo.totalResist, damageInfo.attackType));
 
     DealMeleeDamage(&damageInfo, true);
 
@@ -2568,11 +2583,7 @@ float Unit::MeleeMissChanceCalc(Unit const* pVictim, WeaponAttackType attType) c
     missChance *= levelDiffMultiplier;
 
     // Hit chance bonus from attacker based on ratings and auras
-    float hitChance = 0.0f;
-    if (attType == RANGED_ATTACK)
-        hitChance = m_modRangedHitChance;
-    else
-        hitChance = m_modMeleeHitChance;
+    float hitChance = GetBonusHitChanceFromAuras(attType);
 
     // There is some code in 1.12 that explicitly adds a modifier that causes the first 1% of +hit gained from
     // talents or gear to be ignored against monsters with more than 10 Defense Skill above the attacking player’s Weapon Skill.
@@ -4283,7 +4294,7 @@ public:
 
 typedef std::list<RemovedSpellData> RemoveSpellList;
 
-void Unit::HandleTriggers(Unit* pVictim, uint32 procExtra, uint32 amount, SpellEntry const* procSpell, ProcTriggeredList const& procTriggered)
+void Unit::HandleTriggers(Unit* pVictim, uint32 procExtra, uint32 amount, uint32 originalAmount, SpellEntry const* procSpell, ProcTriggeredList const& procTriggered)
 {
     RemoveSpellList removedSpells;
     // Nothing found
@@ -4345,7 +4356,7 @@ void Unit::HandleTriggers(Unit* pVictim, uint32 procExtra, uint32 amount, SpellE
             if ((triggeredByAura->GetSpellProto()->TargetAuraState == AURA_STATE_HEALTHLESS_20_PERCENT) && (!itr.target || !itr.target->HasAuraState(AURA_STATE_HEALTHLESS_20_PERCENT)))
                 continue;
 
-            SpellAuraProcResult procResult = (*caster.*AuraProcHandler[auraModifier->m_auraname])(itr.target, amount, triggeredByAura, procSpell, itr.procFlag, procExtra, cooldown);
+            SpellAuraProcResult procResult = (*caster.*AuraProcHandler[auraModifier->m_auraname])(itr.target, amount, originalAmount, triggeredByAura, procSpell, itr.procFlag, procExtra, cooldown);
             switch (procResult)
             {
                 case SPELL_AURA_PROC_CANT_TRIGGER:
@@ -5290,6 +5301,12 @@ bool Unit::IsSpellCrit(Unit const* pVictim, SpellEntry const* spellProto, SpellS
                 {
                     if (!(i->GetSpellProto()->SpellFamilyName == spellProto->SpellFamilyName))
                         continue;
+#if SUPPORTED_CLIENT_BUILD <= CLIENT_BUILD_1_10_2
+                    // 1.11.0 - Mage talent Shatter was changed to affect all spells, previously limited to Frost spells.
+                    SpellEntry const* modSpellProto = i->GetSpellProto();
+                    if (modSpellProto->EffectItemType[0] && !spellProto->IsFitToFamily(SpellFamily(modSpellProto->SpellFamilyName), modSpellProto->EffectItemType[0]))
+                        continue;
+#endif
                     switch (i->GetModifier()->m_miscvalue)
                     {
                         // Shatter
@@ -5442,11 +5459,13 @@ bool Unit::IsImmuneToDamage(SpellSchoolMask shoolMask, SpellEntry const* spellIn
             if (itr.type & shoolMask)
             {
                 SpellEntry const* pImmunitySpell = sSpellMgr.GetSpellEntry(itr.spellId);
-
-                if ((pImmunitySpell && pImmunitySpell->IsPositiveSpell()) != (spellInfo && spellInfo->IsPositiveSpell()))
+                if (!pImmunitySpell)
                     return true;
 
-                if (pImmunitySpell && pImmunitySpell->HasAttribute(SPELL_ATTR_EX_IMMUNITY_TO_HOSTILE_AND_FRIENDLY_EFFECTS))
+                if ((pImmunitySpell->IsPositiveSpell()) != (spellInfo && spellInfo->IsPositiveSpell()))
+                    return true;
+
+                if (pImmunitySpell->HasAttribute(SPELL_ATTR_EX_IMMUNITY_TO_HOSTILE_AND_FRIENDLY_EFFECTS))
                     return true;
             }
         }
@@ -5471,11 +5490,13 @@ bool Unit::IsImmuneToSpell(SpellEntry const* spellInfo, bool /*castOnSelf*/) con
         if (itr.type == spellInfo->Dispel)
         {
             SpellEntry const* pImmunitySpell = sSpellMgr.GetSpellEntry(itr.spellId);
-
-            if ((pImmunitySpell && pImmunitySpell->IsPositiveSpell()) != spellInfo->IsPositiveSpell())
+            if (!pImmunitySpell)
                 return true;
 
-            if (pImmunitySpell && pImmunitySpell->HasAttribute(SPELL_ATTR_EX_IMMUNITY_TO_HOSTILE_AND_FRIENDLY_EFFECTS))
+            if ((pImmunitySpell->IsPositiveSpell()) != spellInfo->IsPositiveSpell())
+                return true;
+
+            if (pImmunitySpell->HasAttribute(SPELL_ATTR_EX_IMMUNITY_TO_HOSTILE_AND_FRIENDLY_EFFECTS))
                 return true;
         }
     }
@@ -5490,11 +5511,13 @@ bool Unit::IsImmuneToSpell(SpellEntry const* spellInfo, bool /*castOnSelf*/) con
             if (itr.type & spellInfo->GetSpellSchoolMask())
             {
                 SpellEntry const* pImmunitySpell = sSpellMgr.GetSpellEntry(itr.spellId);
-
-                if ((pImmunitySpell && pImmunitySpell->IsPositiveSpell()) != spellInfo->IsPositiveSpell())
+                if (!pImmunitySpell)
                     return true;
 
-                if (pImmunitySpell && pImmunitySpell->HasAttribute(SPELL_ATTR_EX_IMMUNITY_TO_HOSTILE_AND_FRIENDLY_EFFECTS))
+                if ((pImmunitySpell->IsPositiveSpell()) != spellInfo->IsPositiveSpell())
+                    return true;
+
+                if (pImmunitySpell->HasAttribute(SPELL_ATTR_EX_IMMUNITY_TO_HOSTILE_AND_FRIENDLY_EFFECTS))
                     return true;
             }
         }
@@ -5508,11 +5531,13 @@ bool Unit::IsImmuneToSpell(SpellEntry const* spellInfo, bool /*castOnSelf*/) con
             if (itr.type == mechanic)
             {
                 SpellEntry const* pImmunitySpell = sSpellMgr.GetSpellEntry(itr.spellId);
-
-                if ((pImmunitySpell && pImmunitySpell->IsPositiveSpell()) != spellInfo->IsPositiveSpell())
+                if (!pImmunitySpell)
                     return true;
 
-                if (pImmunitySpell && pImmunitySpell->HasAttribute(SPELL_ATTR_EX_IMMUNITY_TO_HOSTILE_AND_FRIENDLY_EFFECTS))
+                if ((pImmunitySpell->IsPositiveSpell()) != spellInfo->IsPositiveSpell())
+                    return true;
+
+                if (pImmunitySpell->HasAttribute(SPELL_ATTR_EX_IMMUNITY_TO_HOSTILE_AND_FRIENDLY_EFFECTS))
                     return true;
             }
         }
@@ -5551,11 +5576,13 @@ bool Unit::IsImmuneToSpellEffect(SpellEntry const* spellInfo, SpellEffectIndex i
         if (itr.type == effect)
         {
             SpellEntry const* pImmunitySpell = sSpellMgr.GetSpellEntry(itr.spellId);
+            if (!pImmunitySpell)
+                return true;
 
-            if ((pImmunitySpell && pImmunitySpell->IsPositiveSpell()) != spellInfo->IsPositiveEffect(index))
+            if ((pImmunitySpell->IsPositiveSpell()) != spellInfo->IsPositiveEffect(index))
                 return true;
             
-            if (pImmunitySpell && pImmunitySpell->HasAttribute(SPELL_ATTR_EX_IMMUNITY_TO_HOSTILE_AND_FRIENDLY_EFFECTS))
+            if (pImmunitySpell->HasAttribute(SPELL_ATTR_EX_IMMUNITY_TO_HOSTILE_AND_FRIENDLY_EFFECTS))
                 return true;
         }
     }
@@ -5568,11 +5595,13 @@ bool Unit::IsImmuneToSpellEffect(SpellEntry const* spellInfo, SpellEffectIndex i
             if (itr.type == spellInfo->EffectMechanic[index])
             {
                 SpellEntry const* pImmunitySpell = sSpellMgr.GetSpellEntry(itr.spellId);
-
-                if ((pImmunitySpell && pImmunitySpell->IsPositiveSpell()) != spellInfo->IsPositiveEffect(index))
+                if (!pImmunitySpell)
                     return true;
 
-                if (pImmunitySpell && pImmunitySpell->HasAttribute(SPELL_ATTR_EX_IMMUNITY_TO_HOSTILE_AND_FRIENDLY_EFFECTS))
+                if ((pImmunitySpell->IsPositiveSpell()) != spellInfo->IsPositiveEffect(index))
+                    return true;
+
+                if (pImmunitySpell->HasAttribute(SPELL_ATTR_EX_IMMUNITY_TO_HOSTILE_AND_FRIENDLY_EFFECTS))
                     return true;
             }
         }
@@ -5602,20 +5631,17 @@ bool Unit::IsImmuneToSpellEffect(SpellEntry const* spellInfo, SpellEffectIndex i
             if (itr.type == aura)
             {
                 SpellEntry const* pImmunitySpell = sSpellMgr.GetSpellEntry(itr.spellId);
-
-                if ((pImmunitySpell && pImmunitySpell->IsPositiveSpell()) != spellInfo->IsPositiveEffect(index))
+                if (!pImmunitySpell)
                     return true;
 
-                if (pImmunitySpell && pImmunitySpell->HasAttribute(SPELL_ATTR_EX_IMMUNITY_TO_HOSTILE_AND_FRIENDLY_EFFECTS))
+                if ((pImmunitySpell->IsPositiveSpell()) != spellInfo->IsPositiveEffect(index))
+                    return true;
+
+                if (pImmunitySpell->HasAttribute(SPELL_ATTR_EX_IMMUNITY_TO_HOSTILE_AND_FRIENDLY_EFFECTS))
                     return true;
             }
         }
     }
-
-    // Mechanical units are immune to normal heal effects. There is a separate one for them.
-    if ((effect == SPELL_EFFECT_HEAL || effect == SPELL_EFFECT_HEAL_MAX_HEALTH || aura == SPELL_AURA_PERIODIC_HEAL) &&
-        (GetCreatureType() == CREATURE_TYPE_MECHANICAL))
-        return true;
 
     return false;
 }
@@ -5636,10 +5662,13 @@ bool Unit::IsImmuneToSchool(SpellEntry const* spellInfo, uint8 effectMask) const
 
             if (itr.type & spellInfo->GetSpellSchoolMask())
             {
-                if ((pImmunitySpell && pImmunitySpell->IsPositiveSpell()) != spellInfo->IsPositiveEffectMask(effectMask))
+                if (!pImmunitySpell)
                     return true;
 
-                if (pImmunitySpell && pImmunitySpell->HasAttribute(SPELL_ATTR_EX_IMMUNITY_TO_HOSTILE_AND_FRIENDLY_EFFECTS))
+                if ((pImmunitySpell->IsPositiveSpell()) != spellInfo->IsPositiveEffectMask(effectMask))
+                    return true;
+
+                if (pImmunitySpell->HasAttribute(SPELL_ATTR_EX_IMMUNITY_TO_HOSTILE_AND_FRIENDLY_EFFECTS))
                     return true;
             }
         }
@@ -5744,6 +5773,14 @@ void Unit::ApplySpellImmune(uint32 spellId, uint32 op, uint32 type, bool apply)
 {
     if (apply)
     {
+        // Don't add same permanent immunity to list twice.
+        if (!spellId)
+        {
+            for (auto const& itr : m_spellImmune[op])
+                if (itr.spellId == spellId && itr.type == type)
+                    return;
+        }
+
         SpellImmune Immune;
         Immune.spellId = spellId;
         Immune.type = type;

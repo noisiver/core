@@ -257,7 +257,7 @@ void Spell::EffectResurrectNew(SpellEffectIndex effIdx)
 
     uint32 health = damage;
     uint32 mana = m_spellInfo->EffectMiscValue[effIdx];
-    pTarget->SetResurrectRequestData(m_caster->GetObjectGuid(), m_caster->GetMapId(), m_caster->GetPositionX(), m_caster->GetPositionY(), m_caster->GetPositionZ(), health, mana);
+    pTarget->SetResurrectRequestData(m_caster->GetObjectGuid(), m_caster->GetMapId(), m_caster->GetInstanceId(), m_caster->GetPositionX(), m_caster->GetPositionY(), m_caster->GetPositionZ(), m_caster->GetOrientation(), health, mana);
     SendResurrectRequest(pTarget, m_casterUnit && m_casterUnit->IsSpiritHealer());
 
     AddExecuteLogInfo(effIdx, ExecuteLogInfo(unitTarget->GetObjectGuid()));
@@ -1412,7 +1412,10 @@ void Spell::EffectDummy(SpellEffectIndex effIdx)
                     return;
                 case 23725:                                 // Gift of Life (warrior bwl trinket)
                     if (m_casterUnit)
-                        m_casterUnit->CastSpell(m_casterUnit, 23782, true);
+                    {
+                        int32 LifegivingGemHealthMod = int32(m_casterUnit->GetMaxHealth() * 0.15);
+                        m_casterUnit->CastCustomSpell(m_casterUnit, 23782, LifegivingGemHealthMod, {}, {}, true, nullptr);
+                    }
                     return;
                 case 24781:                                 // Dream Fog
                 {
@@ -2890,7 +2893,10 @@ void Spell::EffectOpenLock(SpellEffectIndex effIdx)
 
     // mark item as unlocked
     if (itemTarget)
+    {
         itemTarget->SetFlag(ITEM_FIELD_FLAGS, ITEM_DYNFLAG_UNLOCKED);
+        itemTarget->SetState(ITEM_CHANGED);
+    }
 
     SendLoot(guid, LOOT_SKINNING, LockType(m_spellInfo->EffectMiscValue[effIdx]));
 
@@ -4202,7 +4208,7 @@ void Spell::EffectWeaponDmg(SpellEffectIndex effIdx)
         }
 
         m_casterUnit->SendAttackStateUpdate(&damageInfo);
-        m_casterUnit->ProcDamageAndSpell(ProcSystemArguments(damageInfo.target, damageInfo.procAttacker, damageInfo.procVictim, damageInfo.procEx, damageInfo.totalDamage, damageInfo.attackType));
+        m_casterUnit->ProcDamageAndSpell(ProcSystemArguments(damageInfo.target, damageInfo.procAttacker, damageInfo.procVictim, damageInfo.procEx, damageInfo.totalDamage, damageInfo.totalDamage + damageInfo.totalAbsorb + damageInfo.totalResist, damageInfo.attackType));
         m_casterUnit->DealMeleeDamage(&damageInfo, true);
 
         // if damage unitTarget call AI reaction
@@ -4699,6 +4705,9 @@ void Spell::EffectScriptEffect(SpellEffectIndex effIdx)
                 }
                 case 24590:                                 // Brittle Armor - need remove one 24575 Brittle Armor aura
                     unitTarget->RemoveAuraHolderFromStack(24575);
+                    return;
+                case 24660:                                 // Zandalarian Hero Charm - Unstable Power
+                    unitTarget->RemoveAuraHolderFromStack(24659);
                     return;
                 case 24693:                                 // Hakkar Power Down - cast by priests on death
                 {
@@ -6191,7 +6200,7 @@ void Spell::EffectResurrect(SpellEffectIndex effIdx)
     uint32 health = ditheru(pTarget->GetMaxHealth() * damage / 100);
     uint32 mana   = ditheru(pTarget->GetMaxPower(POWER_MANA) * damage / 100);
 
-    pTarget->SetResurrectRequestData(m_caster->GetObjectGuid(), m_caster->GetMapId(), m_caster->GetPositionX(), m_caster->GetPositionY(), m_caster->GetPositionZ(), health, mana);
+    pTarget->SetResurrectRequestData(m_caster->GetObjectGuid(), m_caster->GetMapId(), m_caster->GetInstanceId(), m_caster->GetPositionX(), m_caster->GetPositionY(), m_caster->GetPositionZ(), m_caster->GetOrientation(), health, mana);
     SendResurrectRequest(pTarget, m_casterUnit && m_casterUnit->IsSpiritHealer());
 
     AddExecuteLogInfo(effIdx, ExecuteLogInfo(unitTarget->GetObjectGuid()));
