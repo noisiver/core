@@ -92,7 +92,9 @@ enum WorldTimers
 // Configuration elements
 enum eConfigUInt32Values
 {
-    CONFIG_UINT32_COMPRESSION = 0,
+    CONFIG_UINT32_COMPRESSION_LEVEL = 0,
+    CONFIG_UINT32_COMPRESSION_UPDATE_SIZE,
+    CONFIG_UINT32_COMPRESSION_MOVEMENT_COUNT,
     CONFIG_UINT32_LOGIN_QUEUE_GRACE_PERIOD_SECS,
     CONFIG_UINT32_CHARACTER_SCREEN_MAX_IDLE_TIME,
     CONFIG_UINT32_PLAYER_HARD_LIMIT,
@@ -301,6 +303,10 @@ enum eConfigUInt32Values
     CONFIG_UINT32_AC_MOVEMENT_CHEAT_NO_FALL_TIME_PENALTY,
     CONFIG_UINT32_AC_MOVEMENT_CHEAT_BAD_FALL_RESET_THRESHOLD,
     CONFIG_UINT32_AC_MOVEMENT_CHEAT_BAD_FALL_RESET_PENALTY,
+    CONFIG_UINT32_AC_MOVEMENT_CHEAT_BAD_FALL_STOP_THRESHOLD,
+    CONFIG_UINT32_AC_MOVEMENT_CHEAT_BAD_FALL_STOP_PENALTY,
+    CONFIG_UINT32_AC_MOVEMENT_CHEAT_BAD_MOVE_START_THRESHOLD,
+    CONFIG_UINT32_AC_MOVEMENT_CHEAT_BAD_MOVE_START_PENALTY,
     CONFIG_UINT32_AC_MOVEMENT_CHEAT_TELEPORT_THRESHOLD,
     CONFIG_UINT32_AC_MOVEMENT_CHEAT_TELEPORT_PENALTY,
     CONFIG_UINT32_AC_MOVEMENT_CHEAT_TELE_TO_TRANSPORT_THRESHOLD,
@@ -571,8 +577,9 @@ enum eConfigBoolValues
     CONFIG_BOOL_AC_MOVEMENT_CHEAT_FLY_ENABLED,
     CONFIG_BOOL_AC_MOVEMENT_CHEAT_FLY_REJECT,
     CONFIG_BOOL_AC_MOVEMENT_CHEAT_NO_FALL_TIME_ENABLED,
-    CONFIG_BOOL_AC_MOVEMENT_CHEAT_NO_FALL_TIME_REJECT,
     CONFIG_BOOL_AC_MOVEMENT_CHEAT_BAD_FALL_RESET_ENABLED,
+    CONFIG_BOOL_AC_MOVEMENT_CHEAT_BAD_FALL_STOP_ENABLED,
+    CONFIG_BOOL_AC_MOVEMENT_CHEAT_BAD_MOVE_START_ENABLED,
     CONFIG_BOOL_AC_MOVEMENT_CHEAT_TELEPORT_ENABLED,
     CONFIG_BOOL_AC_MOVEMENT_CHEAT_TELEPORT_REJECT,
     CONFIG_BOOL_AC_MOVEMENT_CHEAT_TELE_TO_TRANSPORT_ENABLED,
@@ -607,6 +614,7 @@ enum eConfigBoolValues
     CONFIG_BOOL_GM_CHEAT_GOD,
     CONFIG_BOOL_LFG_MATCHMAKING,
     CONFIG_BOOL_LIMIT_PLAY_TIME,
+    CONFIG_BOOL_RESTRICT_UNVERIFIED_ACCOUNTS,
     CONFIG_BOOL_VALUE_COUNT
 };
 
@@ -756,7 +764,7 @@ class World
         typedef std::list<WorldSession*> Queue;
         void AddQueuedSession(WorldSession*);
         bool RemoveQueuedSession(WorldSession* session);
-        int32 GetQueuedSessionPos(WorldSession*);
+        uint32 GetQueuedSessionPos(WorldSession*);
 
         // Set a new Message of the Day
         void SetMotd(std::string const& motd) { m_motd = motd; }
@@ -805,6 +813,7 @@ class World
         void LoadConfigSettings(bool reload = false);
 
         void SendWorldText(int32 string_id, ...);
+        void SendWorldTextToBGAndQueue(int32 string_id, uint32 queuedPlayerLevel, uint32 queueType, ...);
         void SendBroadcastTextToWorld(uint32 textId);
 
         // Only for GMs with ticket notification ON
@@ -881,7 +890,7 @@ class World
         void UpdateResultQueue();
         void InitResultQueue();
 
-        void UpdateRealmCharCount(uint32 accid);
+        void UpdateRealmCharCount(uint32 accountId);
 
         LocaleConstant GetAvailableDbcLocale(LocaleConstant locale) const { if (m_availableDbcLocaleMask & (1 << locale)) return locale; else return m_defaultDbcLocale; }
 
@@ -948,7 +957,7 @@ class World
     protected:
         void _UpdateGameTime();
         // callback for UpdateRealmCharacters
-        void _UpdateRealmCharCount(QueryResult* resultCharCount, uint32 accountId);
+        void _UpdateRealmCharCount(std::unique_ptr<QueryResult> resultCharCount, uint32 accountId);
 
     private:
         void setConfig(eConfigUInt32Values index, char const* fieldname, uint32 defvalue);
